@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<diff><add sel="/language">
+  <page id="202600517" title="Copy Station Logistic Config" voice="no">
+    <!-- "User-facing strings for VAS Copy Station Logistic Config" -->
+    <!-- Right-click menu actions -->
+    <t id="1">Set as Logistic Copy Source</t>
+    <t id="2">Apply Logistic Config from %1</t>
+    <t id="3">Clear Logistic Copy Source</t>
+
+    <!-- Notifications -->
+    <t id="10">Copy Station Logistic: Source: %1. Right-click another player station and pick Apply.</t>
+    <t id="11">Copy Station Logistic: copy source cleared.</t>
+    <t id="12">Copy Station Logistic: Source no longer valid. Pick a new source.</t>
+    <t id="13">Copy Station Logistic: Invalid target.</t>
+    <t id="14">Copy Station Logistic: Applying: all wares -&gt; %1</t>
+    <t id="15">Copy Station Logistic: Applying: %1 selected ware(s) -&gt; %2</t>
+    <t id="16">Copy Station Logistic: Applying: %1 selected ware(s) + drone config -&gt; %2</t>
+    <t id="17">Copy Station Logistic: No wares selected.</t>
+
+    <!-- Picker menu UI -->
+    <t id="20">Copy Logistic Config: %1 -&gt; %2</t>
+    <t id="21">All wares</t>
+    <t id="22">Copy drone config</t>
+    <t id="23">Select / deselect all wares</t>
+    <t id="24">Select only target station wares</t>
+    <t id="25">Confirm</t>
+    <t id="26">Cancel</t>
+
+    <!-- Mod options -->
+    <t id="30">Copy Station Logistic Config</t>
+    <t id="31">Enable debug logging</t>
+  </page>
+</add></diff>

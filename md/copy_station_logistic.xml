@@ -1,0 +1,687 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mdscript xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="VAS_CopyStationLogistic" xsi:noNamespaceSchemaLocation="md.xsd">
+  <!--
+    Adds two right-click actions to player-owned stations:
+
+      [Set as Logistic Copy Source]      — visible on any player-owned station.
+                                           Stores the station as the global source.
+      [Apply Logistic Config from <S>]   — visible on any player-owned station that
+                                           is NOT the source, while a source is set.
+                                           Copies S's per-ware logistic settings here.
+      [Clear Logistic Copy Source]       — visible only while a source is set, to
+                                           cancel without leaving stale state.
+
+    Stations can't take orders, so the hj_copybehavior one-click pattern (select
+    targets, right-click source) does not work here. The two-step source/apply flow
+    is the only practical option for stations.
+
+    Source persists across map opens; only a game-load clears it. The Apply
+    action opens a Simple_Menu_API picker (checkbox per ware + a drone-config
+    toggle); confirming raises a Lua event that does the actual copy.
+  -->
+  <cues>
+    <cue name="ModConfig" namespace="this" version="1">
+      <actions>
+        <set_value name="$debugEnabled" exact="false"/>
+      </actions>
+    </cue>
+
+    <cue name="StartSMO" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.Simple_Menu_Options.Reloaded"/>
+      </conditions>
+      <actions>
+        <signal_cue_instantly cue="md.Simple_Menu_API.Register_Options_Menu" param="table[
+          $id = 'vas_csl_options_menu',
+          $columns = 2,
+          $title = {202600517,30},
+          $onOpen = BuildOptionsMenu,
+        ]"/>
+        <cancel_cue cue="this"/>
+      </actions>
+    </cue>
+
+    <cue name="BuildOptionsMenu" instantiate="true">
+      <conditions>
+        <event_cue_signalled/>
+      </conditions>
+      <actions>
+        <signal_cue_instantly cue="md.Simple_Menu_API.Call_Table_Method" param="table[
+          $method = 'setColWidth',
+          $col = 1,
+          $width = 'Helper.standardButtonHeight',
+        ]"/>
+        <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row"/>
+        <signal_cue_instantly cue="md.Simple_Menu_API.Make_CheckBox" param="table[
+          $id = 'debugEnabled',
+          $checked = md.VAS_CopyStationLogistic.ModConfig.$debugEnabled,
+          $col = 1,
+          $width = 'Helper.standardButtonHeight',
+          $height = 'Helper.standardButtonHeight',
+          $onClick = OnOptionsCheckboxChanged,
+        ]"/>
+        <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
+          $col = 2,
+          $text = {202600517,31},
+        ]"/>
+      </actions>
+    </cue>
+
+    <cue name="OnOptionsCheckboxChanged" instantiate="true">
+      <conditions>
+        <event_cue_signalled/>
+      </conditions>
+      <actions>
+        <set_value name="md.VAS_CopyStationLogistic.ModConfig.{'$' + event.param.$id}" exact="event.param.$checked"/>
+        <do_if value="event.param.$id == 'debugEnabled'">
+          <do_if value="event.param.$checked">
+            <set_value name="player.entity.$vas_csl_debug_chance" exact="100"/>
+          </do_if>
+          <do_else>
+            <set_value name="player.entity.$vas_csl_debug_chance" exact="0"/>
+          </do_else>
+        </do_if>
+        <cancel_cue cue="this"/>
+      </actions>
+    </cue>
+
+    <cue name="Root">
+      <actions>
+        <!-- Lazy-init the global source slot. -->
+        <do_if value="not @global.$vas_csl_source">
+          <set_value name="global.$vas_csl_source" exact="null"/>
+        </do_if>
+        <set_value name="$debugchance" exact="0" />
+        <do_if value="md.VAS_CopyStationLogistic.ModConfig.$debugEnabled">
+          <set_value name="$debugchance" exact="100"/>
+        </do_if>
+        <!-- This value propagates to the LUA script with
+             GetNPCBlackboard(cachedPlayerID, "$vas_csl_debug_chance") -->
+        <set_value name="player.entity.$vas_csl_debug_chance" exact="$debugchance"/>
+      </actions>
+      <cues>
+
+        <!-- Tell the Lua_Loader to bring our companion Lua script into the engine.
+             Same pattern hj_copybehavior uses. The Ready event fires once per UI load. -->
+        <cue name="Load_Lua_Files" instantiate="true">
+          <conditions>
+            <event_ui_triggered screen="'Lua_Loader'" control="'Ready'"/>
+          </conditions>
+          <actions>
+            <raise_lua_event name="'Lua_Loader.Load'" param="'extensions.vas_copy_station_logistic_config.ui.copy_station_logistic'"/>
+            <raise_lua_event name="'Lua_Loader.Load'" param="'extensions.vas_copy_station_logistic_config.ui.simple_menu_checkbox_bridge'"/>
+            <cancel_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <!-- Clear source on game load. The component reference might be stale, and a
+             fresh session shouldn't carry over a half-completed copy operation. -->
+        <cue name="ResetOnLoad" instantiate="true">
+          <conditions>
+            <event_game_loaded/>
+          </conditions>
+          <actions>
+            <set_value name="global.$vas_csl_source" exact="null"/>
+            <cancel_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <!-- SirNukes Interact Menu API hook: register our actions whenever the API
+             requests the action list for an interact-menu instance. -->
+        <cue name="Add_Interact_Actions" instantiate="true">
+          <conditions>
+            <event_cue_signalled cue="md.Interact_Menu_API.Get_Actions"/>
+          </conditions>
+          <actions>
+            <set_value name="$target" exact="@event.param.$object"/>
+
+            <!-- Only consider player-owned stations (not buildstorages). -->
+            <do_if value="@$target.isclass.station
+                            and @$target.trueowner == faction.player
+                            and not @$target.isclass.buildstorage">
+
+              <!-- Drop a stale source reference if it died, was unowned, or got
+                   reclassified between menu opens. -->
+              <do_if value="@global.$vas_csl_source
+                              and (not global.$vas_csl_source.exists
+                                   or global.$vas_csl_source.trueowner != faction.player
+                                   or not global.$vas_csl_source.isclass.station)">
+                <set_value name="global.$vas_csl_source" exact="null"/>
+              </do_if>
+
+              <!-- All user-visible strings live in t/0001-l044.xml under page 202600517. -->
+
+              <!-- Action: Set as source. Always available on a valid station. -->
+              <signal_cue_instantly cue="md.Interact_Menu_API.Add_Action" param="table[
+                $id       = 'vas_csl_set_source',
+                $section  = 'main',
+                $text     = {202600517,1},
+                $callback = SetSource,
+              ]"/>
+
+              <!-- Action: Apply. Only when a different valid source is set. -->
+              <do_if value="@global.$vas_csl_source and global.$vas_csl_source != $target">
+                <signal_cue_instantly cue="md.Interact_Menu_API.Add_Action" param="table[
+                  $id       = 'vas_csl_apply',
+                  $section  = 'main',
+                  $text     = {202600517,2}.[global.$vas_csl_source.knownname],
+                  $callback = ApplyCopy,
+                ]"/>
+              </do_if>
+
+              <!-- Action: Clear. Only when a source is set (regardless of which
+                   station we're right-clicking, so the player can always undo). -->
+              <do_if value="@global.$vas_csl_source">
+                <signal_cue_instantly cue="md.Interact_Menu_API.Add_Action" param="table[
+                  $id       = 'vas_csl_clear',
+                  $section  = 'main',
+                  $text     = {202600517,3},
+                  $callback = ClearSource,
+                ]"/>
+              </do_if>
+
+            </do_if>
+
+            <cancel_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="SetSource">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$station" exact="@event.param.$object"/>
+            <do_if value="@$station.isclass.station and @$station.trueowner == faction.player">
+              <set_value name="global.$vas_csl_source" exact="$station"/>
+              <debug_to_file
+                text="'VAS-CSL: source set to %s (%s)'.[$station.knownname, $station.idcode]"
+                chance="player.entity.$vas_csl_debug_chance"
+                directory="'VAS_CopyStationLogistic'"
+                name="'copy_station_logistic.txt'"
+                output="false"
+                append="true"/>
+              <show_notification text="{202600517,10}.[$station.knownname]" timeout="6s"/>
+            </do_if>
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="ClearSource">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="global.$vas_csl_source" exact="null"/>
+            <show_notification text="{202600517,11}" timeout="4s"/>
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="ApplyCopy">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$target" exact="@event.param.$object"/>
+            <set_value name="$source" exact="@global.$vas_csl_source"/>
+
+            <!-- Re-validate. Source might have been destroyed or sold between the
+                 menu opening and the click landing. -->
+            <do_if value="not @$source or not $source.exists">
+              <show_notification text="{202600517,12}" timeout="5s"/>
+              <set_value name="global.$vas_csl_source" exact="null"/>
+              <reset_cue cue="this"/>
+            </do_if>
+            <do_elseif value="not @$target or not $target.exists or $target == $source">
+              <show_notification text="{202600517,13}" timeout="5s"/>
+              <reset_cue cue="this"/>
+            </do_elseif>
+            <do_else>
+              <debug_to_file
+                text="'VAS-CSL: ApplyCopy called. source=%s (%s) target=%s (%s) - opening picker menu'.[$source.knownname, $source.idcode, $target.knownname, $target.idcode]"
+                chance="player.entity.$vas_csl_debug_chance"
+                directory="'VAS_CopyStationLogistic'"
+                name="'copy_station_logistic.txt'"
+                output="false"
+                append="true"/>
+
+              <!-- Stash source + target for downstream cues + Lua. -->
+              <set_value name="player.entity.$vas_csl_data" exact="table[
+                $source = $source,
+                $target = $target,
+              ]"/>
+
+              <!-- Build the dedup'd ware list from source. MD has stable script
+                   properties for products / cargo / tradewares. We don't have
+                   '$station.allresources.list' in MD, so wares the source needs
+                   for production but never stores would not appear here. They
+                   still get copied if the user picks "Copy all" (Lua-side union
+                   is wider). For per-ware UX this covers all the typical cases. -->
+              <set_value name="$sourceWareList" exact="[]"/>
+              <do_for_each name="$w" in="$source.products.list">
+                <do_if value="$sourceWareList.indexof.{$w} == 0">
+                  <append_to_list name="$sourceWareList" exact="$w"/>
+                </do_if>
+              </do_for_each>
+              <do_for_each name="$w" in="$source.cargo.list">
+                <do_if value="$sourceWareList.indexof.{$w} == 0">
+                  <append_to_list name="$sourceWareList" exact="$w"/>
+                </do_if>
+              </do_for_each>
+              <do_for_each name="$w" in="$source.tradewares.list">
+                <do_if value="$sourceWareList.indexof.{$w} == 0">
+                  <append_to_list name="$sourceWareList" exact="$w"/>
+                </do_if>
+              </do_for_each>
+              <sort_list list="$sourceWareList" sortbyvalue="loop.element.name"/>
+
+              <!-- Build the dedup'd ware list from target station -->
+              <set_value name="$targetWareList" exact="[]"/>
+              <do_for_each name="$w" in="$target.products.list">
+                <do_if value="$targetWareList.indexof.{$w} == 0">
+                  <append_to_list name="$targetWareList" exact="$w"/>
+                </do_if>
+              </do_for_each>
+              <do_for_each name="$w" in="$target.cargo.list">
+                <do_if value="$targetWareList.indexof.{$w} == 0">
+                  <append_to_list name="$targetWareList" exact="$w"/>
+                </do_if>
+              </do_for_each>
+              <do_for_each name="$w" in="$target.tradewares.list">
+                <do_if value="$targetWareList.indexof.{$w} == 0">
+                  <append_to_list name="$targetWareList" exact="$w"/>
+                </do_if>
+              </do_for_each>
+              <sort_list list="$targetWareList" sortbyvalue="loop.element.name"/>
+
+              <!-- Initialize the checkbox menu state. All wares start selected;
+                   confirming this untouched state preserves the old Lua-side
+                   "all" filter, which can include wares MD did not list. -->
+              <set_value name="$selectedWareIds" exact="[]"/>
+              <do_for_each name="$ware" in="$sourceWareList">
+                <append_to_list name="$selectedWareIds" exact="$ware.id"/>
+              </do_for_each>
+
+              <set_value name="player.entity.$vas_csl_data.$sourceWareList" exact="$sourceWareList"/>
+              <set_value name="player.entity.$vas_csl_data.$targetWareList" exact="$targetWareList"/>
+              <set_value name="player.entity.$vas_csl_data.$selectedWareIds" exact="$selectedWareIds"/>
+              <set_value name="player.entity.$vas_csl_data.$allSelected" exact="true"/>
+              <set_value name="player.entity.$vas_csl_data.$copyDroneConfig" exact="false"/>
+
+              <signal_cue_instantly cue="BuildApplyMenu"/>
+            </do_else>
+
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="BuildApplyMenu" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$source" exact="@player.entity.$vas_csl_data.$source"/>
+            <set_value name="$target" exact="@player.entity.$vas_csl_data.$target"/>
+            <set_value name="$sourceWareList" exact="@player.entity.$vas_csl_data.$sourceWareList"/>
+            <set_value name="$selectedWareIds" exact="@player.entity.$vas_csl_data.$selectedWareIds"/>
+            <set_value name="$allSelected" exact="@player.entity.$vas_csl_data.$allSelected"/>
+            <set_value name="$copyDroneConfig" exact="@player.entity.$vas_csl_data.$copyDroneConfig"/>
+            <set_value name="$tableRow" exact="0"/>
+
+            <do_if value="@$source and @$target and @$sourceWareList and @$selectedWareIds">
+              <signal_cue_instantly cue="md.Simple_Menu_API.Create_Menu" param="table[
+                $id = 'vas_csl_apply_menu',
+                $columns = 2,
+                $title = {202600517,20}.[$source.knownname, $target.knownname],
+                $width = 560,
+              ]"/>
+
+              <signal_cue_instantly cue="md.Simple_Menu_API.Call_Table_Method" param="table[
+                $method = 'setColWidth',
+                $col = 1,
+                $width = 'Helper.standardButtonHeight',
+              ]"/>
+
+              <!-- All wares selected checkbox -->
+              <set_value name="$tableRow" operation="add"/>
+              <set_value name="player.entity.$vas_csl_data.$allWaresSelectedCheckboxRow" exact="$tableRow"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_CheckBox" param="table[
+                $col = 1,
+                $id = 'vas_csl_select_all',
+                $checked = $allSelected,
+                $width = 'Helper.standardButtonHeight',
+                $height = 'Helper.standardButtonHeight',
+                $onClick = OnSelectAllChanged,
+              ]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
+                $col = 2,
+                $text = {202600517,21},
+              ]"/>
+
+              <!-- Spacer -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[
+                $selectable = false,
+                $borderBelow = true,
+                $bgColor = 'Color.row_separator_white',
+              ]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
+                  $col = 1,
+                  $colSpan = 2,
+                  $height = 'Helper.borderSize',
+                  $fontsize = 1,
+                  $cellBGColor = 'Color.row_separator_white',
+              ]"/>
+
+              <!-- Ware checkboxes -->
+              <set_value name="player.entity.$vas_csl_data.$wareCheckboxesStartRow" exact="$tableRow + 1"/>
+              <do_for_each name="$ware" in="$sourceWareList">
+                <set_value name="$tableRow" operation="add"/>
+                <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[]"/>
+                <signal_cue_instantly cue="md.Simple_Menu_API.Make_CheckBox" param="table[
+                  $col = 1,
+                  $id = 'vas_csl_ware_' + $ware.id,
+                  $echo = $ware.id,
+                  $checked = $selectedWareIds.indexof.{$ware.id} != 0,
+                  $width = 'Helper.standardButtonHeight',
+                  $height = 'Helper.standardButtonHeight',
+                  $onClick = OnWareCheckboxChanged,
+                ]"/>
+                <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
+                  $col = 2,
+                  $text = $ware.name,
+                ]"/>
+              </do_for_each>
+
+              <!-- Spacer -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[
+                $selectable = false,
+                $borderBelow = true,
+                $bgColor = 'Color.row_separator_white',
+              ]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
+                  $col = 1,
+                  $colSpan = 2,
+                  $height = 'Helper.borderSize',
+                  $fontsize = 1,
+                  $cellBGColor = 'Color.row_separator_white',
+              ]"/>
+
+              <!-- Copy drone config checkbox -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_CheckBox" param="table[
+                $col = 1,
+                $id = 'vas_csl_copy_drone_config',
+                $checked = $copyDroneConfig,
+                $width = 'Helper.standardButtonHeight',
+                $height = 'Helper.standardButtonHeight',
+                $onClick = OnCopyDroneConfigChanged,
+              ]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
+                $col = 2,
+                $text = {202600517,22},
+              ]"/>
+
+              <!-- Spacer -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[
+                $selectable = false,
+                $borderBelow = true,
+                $bgColor = 'Color.row_separator_white',
+              ]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
+                  $col = 1,
+                  $colSpan = 2,
+                  $height = 'Helper.borderSize',
+                  $fontsize = 1,
+                  $cellBGColor = 'Color.row_separator_white',
+              ]"/>
+
+              <!-- Select / deselect all button -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Button" param="table[
+                $col = 1,
+                $colSpan = 2,
+                $id = 'vas_csl_select_deselect_all',
+                $text = table[$text = {202600517,23}, $halign = 'center'],
+                $onClick = OnSelectDeselectAllClicked,
+              ]"/>
+
+              <!-- Select only target wares button -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Button" param="table[
+                $col = 1,
+                $colSpan = 2,
+                $id = 'vas_csl_select_target_wares',
+                $text = table[$text = {202600517,24}, $halign = 'center'],
+                $onClick = OnSelectTargetWaresClicked,
+              ]"/>
+
+              <!-- Confirm button -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Button" param="table[
+                $col = 1,
+                $colSpan = 2,
+                $id = 'vas_csl_confirm',
+                $text = table[$text = {202600517,25}, $halign = 'center'],
+                $onClick = OnConfirmClicked,
+              ]"/>
+
+              <!-- Cancel button -->
+              <set_value name="$tableRow" operation="add"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row" param="table[]"/>
+              <signal_cue_instantly cue="md.Simple_Menu_API.Make_Button" param="table[
+                $col = 1,
+                $colSpan = 2,
+                $id = 'vas_csl_cancel',
+                $text = table[$text = {202600517,26}, $halign = 'center'],
+                $onClick = OnCancelClicked,
+              ]"/>
+            </do_if>
+
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="OnSelectAllChanged" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$checked" exact="if event.param.$checked then true else false"/>
+            <set_value name="player.entity.$vas_csl_data.$allSelected" exact="$checked"/>
+            <set_value name="$selectedWareIds" exact="[]"/>
+            <do_for_each name="$ware" in="@player.entity.$vas_csl_data.$sourceWareList">
+              <do_if value="$checked">
+                <append_to_list name="$selectedWareIds" exact="$ware.id"/>
+              </do_if>
+            </do_for_each>
+            <set_value name="player.entity.$vas_csl_data.$selectedWareIds" exact="$selectedWareIds"/>
+
+            <set_value name="$row" exact="@player.entity.$vas_csl_data.$wareCheckboxesStartRow"/>
+            <do_for_each name="$ware" in="@player.entity.$vas_csl_data.$sourceWareList">
+              <raise_lua_event name="'VAS_CSL.SetSimpleMenuCheckbox'" param="'%s;%s;%s'.[$row, 1, if $checked then 1 else 0]"/>
+              <set_value name="$row" operation="add"/>
+            </do_for_each>
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="OnWareCheckboxChanged" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$wareid" exact="@event.param.$echo"/>
+            <set_value name="$checked" exact="if event.param.$checked then true else false"/>
+
+            <do_if value="@$wareid">
+              <set_value name="$selectedWareIds" exact="@player.entity.$vas_csl_data.$selectedWareIds"/>
+              <do_if value="$checked and $selectedWareIds.indexof.{$wareid} == 0">
+                <append_to_list name="$selectedWareIds" exact="$wareid"/>
+              </do_if>
+              <do_elseif value="not $checked and $selectedWareIds.indexof.{$wareid} != 0">
+                <remove_from_list name="$selectedWareIds" exact="$wareid"/>
+              </do_elseif>
+              <set_value name="player.entity.$vas_csl_data.$selectedWareIds" exact="$selectedWareIds"/>
+
+              <set_value name="player.entity.$vas_csl_data.$allSelected"
+                         exact="$selectedWareIds.count == player.entity.$vas_csl_data.$sourceWareList.count"/>
+              <raise_lua_event name="'VAS_CSL.SetSimpleMenuCheckbox'"
+                               param="'%s;%s;%s'.[@player.entity.$vas_csl_data.$allWaresSelectedCheckboxRow, 1, if player.entity.$vas_csl_data.$allSelected then 1 else 0]"/>
+            </do_if>
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="OnSelectDeselectAllClicked" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$checked" exact="not @player.entity.$vas_csl_data.$allSelected"/>
+            <set_value name="player.entity.$vas_csl_data.$allSelected" exact="$checked"/>
+            <raise_lua_event name="'VAS_CSL.SetSimpleMenuCheckbox'"
+                             param="'%s;%s;%s'.[@player.entity.$vas_csl_data.$allWaresSelectedCheckboxRow, 1, if $checked then 1 else 0]"/>
+
+            <set_value name="$selectedWareIds" exact="[]"/>
+            <do_for_each name="$ware" in="@player.entity.$vas_csl_data.$sourceWareList">
+              <do_if value="$checked">
+                <append_to_list name="$selectedWareIds" exact="$ware.id"/>
+              </do_if>
+            </do_for_each>
+            <set_value name="player.entity.$vas_csl_data.$selectedWareIds" exact="$selectedWareIds"/>
+
+            <set_value name="$row" exact="@player.entity.$vas_csl_data.$wareCheckboxesStartRow"/>
+            <do_for_each name="$ware" in="@player.entity.$vas_csl_data.$sourceWareList">
+              <raise_lua_event name="'VAS_CSL.SetSimpleMenuCheckbox'" param="'%s;%s;%s'.[$row, 1, if $checked then 1 else 0]"/>
+              <set_value name="$row" operation="add"/>
+            </do_for_each>
+
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="OnSelectTargetWaresClicked" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$sourceWareList" exact="@player.entity.$vas_csl_data.$sourceWareList"/>
+            <set_value name="$targetWareList" exact="@player.entity.$vas_csl_data.$targetWareList"/>
+            <set_value name="$selectedWareIds" exact="[]"/>
+
+            <set_value name="$row" exact="@player.entity.$vas_csl_data.$wareCheckboxesStartRow"/>
+            <do_for_each name="$ware" in="$sourceWareList">
+              <set_value name="$targetHasWare" exact="false"/>
+              <do_for_each name="$targetWare" in="$targetWareList">
+                <do_if value="$targetWare.id == $ware.id">
+                  <set_value name="$targetHasWare" exact="true"/>
+                </do_if>
+              </do_for_each>
+
+              <do_if value="$targetHasWare">
+                <append_to_list name="$selectedWareIds" exact="$ware.id"/>
+              </do_if>
+
+              <raise_lua_event name="'VAS_CSL.SetSimpleMenuCheckbox'" param="'%s;%s;%s'.[$row, 1, if $targetHasWare then 1 else 0]"/>
+              <set_value name="$row" operation="add"/>
+            </do_for_each>
+
+            <set_value name="player.entity.$vas_csl_data.$selectedWareIds" exact="$selectedWareIds"/>
+            <set_value name="player.entity.$vas_csl_data.$allSelected"
+                       exact="$selectedWareIds.count == $sourceWareList.count"/>
+            <raise_lua_event name="'VAS_CSL.SetSimpleMenuCheckbox'"
+                             param="'%s;%s;%s'.[@player.entity.$vas_csl_data.$allWaresSelectedCheckboxRow, 1, if player.entity.$vas_csl_data.$allSelected then 1 else 0]"/>
+
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="OnCopyDroneConfigChanged" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="player.entity.$vas_csl_data.$copyDroneConfig"
+                       exact="if event.param.$checked then true else false"/>
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="OnConfirmClicked" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <set_value name="$sourceWareList" exact="@player.entity.$vas_csl_data.$sourceWareList"/>
+            <set_value name="$selectedWareIds" exact="@player.entity.$vas_csl_data.$selectedWareIds"/>
+            <set_value name="$allSelected" exact="@player.entity.$vas_csl_data.$allSelected"/>
+            <set_value name="$copyDroneConfig" exact="@player.entity.$vas_csl_data.$copyDroneConfig"/>
+            <set_value name="$target" exact="@player.entity.$vas_csl_data.$target"/>
+            <set_value name="$filter" exact="[]"/>
+
+            <do_if value="$allSelected">
+              <set_value name="$filter" exact="'all'"/>
+            </do_if>
+            <do_else>
+              <set_value name="$filter" exact="$selectedWareIds"/>
+            </do_else>
+
+            <do_if value="@$filter and @$target">
+              <do_if value="$filter == 'all'">
+                <set_value name="player.entity.$vas_csl_data.$filter" exact="$filter"/>
+                <debug_to_file
+                  text="'VAS-CSL: menu confirmed, filter=all target=%s'.[$target.knownname]"
+                  chance="player.entity.$vas_csl_debug_chance"
+                  directory="'VAS_CopyStationLogistic'"
+                  name="'copy_station_logistic.txt'"
+                  output="false"
+                  append="true"/>
+                <show_notification text="{202600517,14}.[$target.knownname]" timeout="5s"/>
+                <signal_cue_instantly cue="md.Simple_Menu_API.Close_Menu"/>
+                <raise_lua_event name="'VAS_CSL.Apply'" param="$target"/>
+              </do_if>
+              <do_elseif value="$filter.count gt 0 or $copyDroneConfig">
+                <set_value name="player.entity.$vas_csl_data.$filter" exact="$filter"/>
+                <debug_to_file
+                  text="'VAS-CSL: menu confirmed, selected=%s drones=%s target=%s'.[$filter.count, $copyDroneConfig, $target.knownname]"
+                  chance="player.entity.$vas_csl_debug_chance"
+                  directory="'VAS_CopyStationLogistic'"
+                  name="'copy_station_logistic.txt'"
+                  output="false"
+                  append="true"/>
+                <show_notification text="if $copyDroneConfig then {202600517,16}.[$filter.count, $target.knownname] else {202600517,15}.[$filter.count, $target.knownname]" timeout="5s"/>
+                <signal_cue_instantly cue="md.Simple_Menu_API.Close_Menu"/>
+                <raise_lua_event name="'VAS_CSL.Apply'" param="$target"/>
+              </do_elseif>
+              <do_else>
+                <show_notification text="{202600517,17}" timeout="4s"/>
+              </do_else>
+            </do_if>
+
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+        <cue name="OnCancelClicked" instantiate="true">
+          <conditions>
+            <event_cue_signalled/>
+          </conditions>
+          <actions>
+            <signal_cue_instantly cue="md.Simple_Menu_API.Close_Menu"/>
+            <reset_cue cue="this"/>
+          </actions>
+        </cue>
+
+      </cues>
+    </cue>
+  </cues>
+</mdscript>
