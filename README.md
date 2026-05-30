@@ -141,3 +141,7 @@ left intact (the player's existing orders survive).
 - Built on **SirNukes Mod Support APIs** (Lua loader, Interact Menu API,
   Simple Menu API).
 - By VasiliyTemniy.
+
+## Source
+
+https://github.com/VasiliyTemniy/x4-foundations-copy-station-logistic-config
