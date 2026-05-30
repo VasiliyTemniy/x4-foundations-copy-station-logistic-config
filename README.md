@@ -123,11 +123,10 @@ left intact (the player's existing orders survive).
 ## Caveats
 
 - **No undo.** Pick carefully; or re-apply with corrected settings.
-- **Debug logging is off by default.** To turn it on, edit
-  [md/copy_station_logistic.xml](md/copy_station_logistic.xml) and change
-  `$debugchance` in the `Root` cue from `0` to `100`. This enables both the
-  MD-side `debug_to_file` logs (file: `VAS_CopyStationLogistic/copy_station_logistic.txt`)
-  and the Lua `DebugError` blocks (in the in-game debug log window).
+- **Debug logging is off by default.** Enable it from Extension Options if you
+  need troubleshooting output. This enables both the MD-side `debug_to_file`
+  logs (file: `VAS_CopyStationLogistic/copy_station_logistic.txt`) and the Lua
+  `DebugError` blocks in the in-game debug log window.
 - **One internal-API workaround.** The picker UI relies on a small bridge
   ([ui/simple_menu_checkbox_bridge.lua](ui/simple_menu_checkbox_bridge.lua))
   that reaches into SirNukes Simple_Menu_API's internal tables to update
