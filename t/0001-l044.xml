@@ -13,8 +13,8 @@
     <t id="12">Copy Station Logistic: Source no longer valid. Pick a new source.</t>
     <t id="13">Copy Station Logistic: Invalid target.</t>
     <t id="14">Copy Station Logistic: Applying: all wares -&gt; %1</t>
-    <t id="15">Copy Station Logistic: Applying: %1 selected ware(s) -&gt; %2</t>
-    <t id="16">Copy Station Logistic: Applying: %1 selected ware(s) + drone config -&gt; %2</t>
+    <t id="15">Copy Station Logistic: Applying: %1 selected wares -&gt; %2</t>
+    <t id="16">Copy Station Logistic: Applying: %1 selected wares + drone config -&gt; %2</t>
     <t id="17">Copy Station Logistic: No wares selected.</t>
 
     <!-- Picker menu UI -->
