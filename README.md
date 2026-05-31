@@ -36,7 +36,7 @@ you don't want copied (or keep the default "all"), confirm. Done.
 
 ## Requirements
 
-- **SirNukes Mod Support APIs** (Steam Workshop ID `2042901274`) — hard
+- **SirNukes Mod Support APIs** ([link](https://www.nexusmods.com/x4foundations/mods/503)) — hard
   dependency. Provides Lua loader, Interact Menu API and Simple Menu API.
 
 ## How to use
@@ -94,8 +94,7 @@ left intact (the player's existing orders survive).
 
 ## What does NOT get copied
 
-- Non-drone supply overrides (missile resupply settings on the target are
-  preserved unless the player explicitly copies the supply trade rule).
+- Non-drone supply overrides.
 - Anything outside the Logical Station Overview (e.g. construction plans,
   module loadouts).
 
@@ -127,11 +126,6 @@ left intact (the player's existing orders survive).
   need troubleshooting output. This enables both the MD-side `debug_to_file`
   logs (file: `VAS_CopyStationLogistic/copy_station_logistic.txt`) and the Lua
   `DebugError` blocks in the in-game debug log window.
-- **One internal-API workaround.** The picker UI relies on a small bridge
-  ([ui/simple_menu_checkbox_bridge.lua](ui/simple_menu_checkbox_bridge.lua))
-  that reaches into SirNukes Simple_Menu_API's internal tables to update
-  checkbox state. This is a known limitation of `Update_Widget` — the bridge
-  is small, defensive, and degrades gracefully if SN's internals change.
 
 ## Credits
 
