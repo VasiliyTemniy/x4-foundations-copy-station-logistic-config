@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addon name="vas_copy_station_logistic_config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../ui/core/addon.xsd">
+  <environment type="menus">
+    <file name="ui/copy_station_logistic.lua"/>
+    <file name="ui/simple_menu_checkbox_bridge.lua"/>
+  </environment>
+</addon>

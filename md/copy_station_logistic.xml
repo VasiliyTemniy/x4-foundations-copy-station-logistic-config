@@ -101,19 +101,6 @@
       </actions>
       <cues>
 
-        <!-- Tell the Lua_Loader to bring our companion Lua script into the engine.
-             Same pattern hj_copybehavior uses. The Ready event fires once per UI load. -->
-        <cue name="Load_Lua_Files" instantiate="true">
-          <conditions>
-            <event_ui_triggered screen="'Lua_Loader'" control="'Ready'"/>
-          </conditions>
-          <actions>
-            <raise_lua_event name="'Lua_Loader.Load'" param="'extensions.vas_copy_station_logistic_config.ui.copy_station_logistic'"/>
-            <raise_lua_event name="'Lua_Loader.Load'" param="'extensions.vas_copy_station_logistic_config.ui.simple_menu_checkbox_bridge'"/>
-            <cancel_cue cue="this"/>
-          </actions>
-        </cue>
-
         <!-- Clear source on game load. The component reference might be stale, and a
              fresh session shouldn't carry over a half-completed copy operation. -->
         <cue name="ResetOnLoad" instantiate="true">
