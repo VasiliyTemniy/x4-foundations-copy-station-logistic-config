@@ -4,7 +4,7 @@
   name="[VAS] Copy Station Logistic Config"
   description="Adds a right-click 'Copy Logistic Config from' action to player-owned stations. Select target station(s), right-click a source station and apply the source's per-ware storage allocation, buy/sell offers, pricing and trade rules to the targets. Inspired by HJ Copy Behaviour."
   author="VasiliyTemniy"
-  version="100"
+  version="101"
   date="2026-05-17"
   save="0">
   <dependency id="ws_2042901274" optional="false" name="SirNukes Mod Support APIs"/>
