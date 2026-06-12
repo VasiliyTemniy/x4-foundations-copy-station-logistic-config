@@ -34,6 +34,12 @@ Right-click it, pick **Set as Logistic Copy Source**. Right-click each
 target station, pick **Apply Logistic Config from <X>**, untick the wares
 you don't want copied (or keep the default "all"), confirm. Done.
 
+## Game version compatibility
+
+- 9.00 release - **supported**
+- 9.00 betas and release candidates - **supported**
+- 8.00 release - **supported**
+
 ## Requirements
 
 - **SirNukes Mod Support APIs** ([link](https://www.nexusmods.com/x4foundations/mods/503)) — hard
