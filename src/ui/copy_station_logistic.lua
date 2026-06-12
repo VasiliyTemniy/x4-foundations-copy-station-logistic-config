@@ -358,8 +358,9 @@ local function updateSupplyOverrides(container, overrides)
     C.UpdateSupplyOverrides(container, buf, count)
 end
 
--- Drone storage uses a single shared pool across cargo/defence/repair (build is
--- internal and always zero for stations). Override semantics, lifted verbatim
+-- Drone storage uses a single shared pool across cargo/defence/repair/build.
+-- Builder drones are only configurable on ship/equipment build stations.
+-- Override semantics, lifted verbatim
 -- from vanilla menu_station_overview.lua:
 --   AUTO:   override = absolute projected total (stored + inbound)
 --           pool usage for this macro = max(stored, override or default)
@@ -367,9 +368,9 @@ end
 --           pool usage for this macro = stored + max(0, override)
 --
 -- Apply rules (per user spec):
---   * Process types in order: transport (cargo) -> defence -> repair.
---     Build type is left entirely alone (no mode sync, no override changes) --
---     it's station-internal and stations don't construct ships.
+--   * Process types in order: transport (cargo) -> defence -> repair -> build.
+--     Build type is gated like vanilla: copied only from a meaningful source
+--     onto a target that can equip ships.
 --   * Never destroy stored drones; if targetStored >= sourceProjected, keep
 --     targetStored and zero the inbound (cancel pending orders).
 --   * Pool budget is the shared capacity minus current pool usage of every
@@ -404,6 +405,8 @@ local function copyDroneConfig(source, target)
         sourceManualByType[dt.unitType] = C.IsSupplyManual(source, dt.supplyType)
         targetManualByType[dt.unitType] = C.IsSupplyManual(target, dt.supplyType)
     end
+    local sourceCanEquipShips = GetComponentData(source, "canequipships")
+    local targetCanEquipShips = GetComponentData(target, "canequipships")
 
     -- Map macro -> unitType on target, so we can look up the right mode when
     -- summing pool usage across all drone macros.
@@ -459,8 +462,17 @@ local function copyDroneConfig(source, target)
     for _, dt in ipairs(droneTypes) do
         local unitType, supplyType = dt.unitType, dt.supplyType
         if unitType == "build" then
-            debug("drones: build type left untouched (mode + overrides preserved)")
-            goto continueDroneType
+            local sourceBuild = sourceUnitsByType[unitType]
+            local targetBuild = targetUnitsByType[unitType]
+            local sourceBuildVisible = sourceCanEquipShips or (sourceBuild.stored > 0)
+            if (not sourceBuildVisible) or (sourceBuild.capacity <= 0) or
+               (not targetCanEquipShips) or (targetBuild.capacity <= 0) then
+                debug(string.format(
+                    "drones: build skipped (sourceCanEquip=%s sourceStored=%d sourceCapacity=%d targetCanEquip=%s targetCapacity=%d)",
+                    tostring(sourceCanEquipShips), sourceBuild.stored, sourceBuild.capacity,
+                    tostring(targetCanEquipShips), targetBuild.capacity))
+                goto continueDroneType
+            end
         end
         local sourceManual = sourceManualByType[unitType]
         local prevTargetManual = targetManualByType[unitType]
