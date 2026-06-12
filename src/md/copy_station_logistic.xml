@@ -20,92 +20,24 @@
     toggle); confirming raises a Lua event that does the actual copy.
   -->
   <cues>
-    <cue name="ModConfig" namespace="this" version="1">
-      <actions>
-        <set_value name="$debugEnabled" exact="false"/>
-      </actions>
-    </cue>
-
-    <cue name="StartSMO" instantiate="true">
-      <conditions>
-        <event_cue_signalled cue="md.Simple_Menu_Options.Reloaded"/>
-      </conditions>
-      <actions>
-        <signal_cue_instantly cue="md.Simple_Menu_API.Register_Options_Menu" param="table[
-          $id = 'vas_csl_options_menu',
-          $columns = 2,
-          $title = {202600517,30},
-          $onOpen = BuildOptionsMenu,
-        ]"/>
-        <cancel_cue cue="this"/>
-      </actions>
-    </cue>
-
-    <cue name="BuildOptionsMenu" instantiate="true">
-      <conditions>
-        <event_cue_signalled/>
-      </conditions>
-      <actions>
-        <signal_cue_instantly cue="md.Simple_Menu_API.Call_Table_Method" param="table[
-          $method = 'setColWidth',
-          $col = 1,
-          $width = 'Helper.standardButtonHeight',
-        ]"/>
-        <signal_cue_instantly cue="md.Simple_Menu_API.Add_Row"/>
-        <signal_cue_instantly cue="md.Simple_Menu_API.Make_CheckBox" param="table[
-          $id = 'debugEnabled',
-          $checked = md.VAS_CopyStationLogistic.ModConfig.$debugEnabled,
-          $col = 1,
-          $width = 'Helper.standardButtonHeight',
-          $height = 'Helper.standardButtonHeight',
-          $onClick = OnOptionsCheckboxChanged,
-        ]"/>
-        <signal_cue_instantly cue="md.Simple_Menu_API.Make_Text" param="table[
-          $col = 2,
-          $text = {202600517,31},
-        ]"/>
-      </actions>
-    </cue>
-
-    <cue name="OnOptionsCheckboxChanged" instantiate="true">
-      <conditions>
-        <event_cue_signalled/>
-      </conditions>
-      <actions>
-        <set_value name="md.VAS_CopyStationLogistic.ModConfig.{'$' + event.param.$id}" exact="event.param.$checked"/>
-        <do_if value="event.param.$id == 'debugEnabled'">
-          <do_if value="event.param.$checked">
-            <set_value name="player.entity.$vas_csl_debug_chance" exact="100"/>
-          </do_if>
-          <do_else>
-            <set_value name="player.entity.$vas_csl_debug_chance" exact="0"/>
-          </do_else>
-        </do_if>
-        <cancel_cue cue="this"/>
-      </actions>
-    </cue>
-
+    <!-- Config state + Extension Options UI live in copy_station_logistic_config_menu.xml
+         (mdscript VAS_CopyStationLogistic_Config); the $vas_csl_debug_chance Lua
+         mirror is re-pushed there on every load. -->
     <cue name="Root">
       <actions>
         <!-- Lazy-init the global source slot. -->
         <do_if value="not @global.$vas_csl_source">
           <set_value name="global.$vas_csl_source" exact="null"/>
         </do_if>
-        <set_value name="$debugchance" exact="0" />
-        <do_if value="md.VAS_CopyStationLogistic.ModConfig.$debugEnabled">
-          <set_value name="$debugchance" exact="100"/>
-        </do_if>
-        <!-- This value propagates to the LUA script with
-             GetNPCBlackboard(cachedPlayerID, "$vas_csl_debug_chance") -->
-        <set_value name="player.entity.$vas_csl_debug_chance" exact="$debugchance"/>
       </actions>
       <cues>
 
         <!-- Clear source on game load. The component reference might be stale, and a
-             fresh session shouldn't carry over a half-completed copy operation. -->
+             fresh session shouldn't carry over a half-completed copy operation.
+             event_universe_generated fires on new game AND every save load. -->
         <cue name="ResetOnLoad" instantiate="true">
           <conditions>
-            <event_game_loaded/>
+            <event_universe_generated/>
           </conditions>
           <actions>
             <set_value name="global.$vas_csl_source" exact="null"/>
