@@ -135,6 +135,9 @@ ffi.cdef[[
     void     UpdateSupplyOverrides(UniverseID containerid, SupplyOverride* overrides,
                                    uint32_t numoverrides);
     void     UpdateProductionTradeOffers(UniverseID containerid);
+
+    // Player entity id, for reading the player blackboard (debug toggle etc.)
+    UniverseID GetPlayerID(void);
 ]]
 
 -- ----------------------------------------------------------------------------
@@ -1262,11 +1265,8 @@ local function applyCopy(_, targetHandle)
     flushDebug()
 end
 
--- We also need PlayerID + GetNPCBlackboard. Add the minimum cdef to access them.
-ffi.cdef[[
-    UniverseID GetPlayerID(void);
-]]
+-- ============================================================================
+-- Init
+-- ============================================================================
 
 RegisterEvent("VAS_CSL.Apply", applyCopy)
-debug("VAS_CSL Lua module loaded; VAS_CSL.Apply handler registered.")
-flushDebug()
