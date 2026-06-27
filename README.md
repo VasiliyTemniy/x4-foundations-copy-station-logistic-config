@@ -101,7 +101,7 @@ left intact (the player's existing orders survive).
 ## What does NOT get copied
 
 - Non-drone supply overrides.
-- Anything outside the Logical Station Overview (e.g. construction plans,
+- Anything outside the Logistic Station Overview (e.g. construction plans,
   module loadouts).
 
 ## Cross-station compatibility notes
